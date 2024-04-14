@@ -90,7 +90,5 @@ client3.on_subscribe = on_subscribe
 client3.on_message = on_message
 client3.on_publish = on_publish
 
-# loop_forever for simplicity, here you need to stop the loop manually
-# you can also use loop_start and loop_stop
 client3.subscribe("game/#", qos=1)
 client3.loop_forever()

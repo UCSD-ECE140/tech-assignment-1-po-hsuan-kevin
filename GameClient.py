@@ -2,6 +2,7 @@ import os
 import json
 import copy
 from collections import OrderedDict
+import time
 
 import paho.mqtt.client as paho
 from paho import mqtt
@@ -176,10 +177,20 @@ def publish_to_lobby(client, lobby_name, msg):
     client.publish(f"games/{lobby_name}/lobby", msg)
 
 
+def next_move(client, topic_list, msg_payload):
+    lobby_name = topic_list[1]
+    player_name = topic_list[2]
+    if(player_name not in client.move_dict[lobby_name].keys()):
+        values=json.loads(msg_payload)
+        values={'obsticle':values['enemyPositions']+ values['walls'], 'coin':values['coin1']+values['coin2']+values['coin3']}
+        #use values to make move
+        client.publish(f'games/{lobby_name}/{player_name}/move', 'RIGHT')
+
 dispatch = {
     'new_game' : add_player,
     'move' : player_move,
     'start' : start_game,
+    'game_state' : next_move,
 }
 
 
@@ -213,5 +224,27 @@ if __name__ == '__main__':
     client.subscribe("new_game")
     client.subscribe('games/+/start')
     client.subscribe('games/+/+/move')
-
+    
+    client.loop_start()
+    lobby_name = "lobby1"
+    client.subscribe(f'games/{lobby_name}/#')
+    team1= "Red"
+    team2="Black"
+    player1="Po"
+    player2="Kevin"
+    player3="Bob"
+    player4="John"
+    client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team1, "player_name": player1}))
+    client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team1, "player_name": player2}))
+    client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team2, "player_name": player3}))
+    client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team2, "player_name": player4}))
+    while lobby_name not in client.team_dict.keys():
+        time.sleep(1)
+    while (len(client.team_dict[lobby_name][team1]) < 2 or len(client.team_dict[lobby_name][team2]) < 2):
+        time.sleep(1)
+    client.publish(f'games/{lobby_name}/start', 'START')
+    while(True):
+        if(client.team_dict[lobby_name]["started"]):
+            time.sleep(1)
+    client.loop_stop()
     client.loop_forever()

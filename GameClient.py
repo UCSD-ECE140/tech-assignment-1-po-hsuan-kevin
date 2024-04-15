@@ -321,7 +321,12 @@ if __name__ == '__main__':
     while lobby_name not in client.team_dict.keys():
         time.sleep(1)
     # make sure we have enough player
-    while (len(client.team_dict[lobby_name][team1]) < 2 or len(client.team_dict[lobby_name][team2]) < 2):
+    player_count=0
+    while (player_count < 4):
+        player_count=0
+        for key in client.team_dict[lobby_name].keys():
+            if(key != 'started'):
+                player_count+=len(client.team_dict[lobby_name][key])
         time.sleep(1)
     # start game
     client.publish(f'games/{lobby_name}/start', 'START')

@@ -181,21 +181,27 @@ def publish_to_lobby(client, lobby_name, msg):
 
 
 def next_move(client, topic_list, msg_payload):
+    # data
     lobby_name = topic_list[1]
     player_name = topic_list[2]
+    # check if user moved
     if(player_name not in client.move_dict[lobby_name].keys()):
+        # get data
         values=json.loads(msg_payload)
         curr = values['currentPosition']
         playerVisited[player_name][curr[0]][curr[1]]=1
         obsticle = values['enemyPositions'] +  values['walls']+values['teammatePositions']
+        # update player map
         for val in values['walls']:
             playerVisited[player_name][val[0]][val[1]]=2
         coin = values['coin1']+values['coin2'] + values['coin3']
         theQueue=[curr]
+        # bfs paramater
         visited=[[0 for col in range(10)] for row in range(10)]
         parent=[[[0,0] for col in range(10)] for row in range(10)]
         final_path_points=[]
         done=False
+        # if no goal, find the closest unsearch and move towards it
         if(not len(coin)):                
             closetst=[100,100]
             for rown,row in enumerate(playerVisited[player_name]):
@@ -204,6 +210,7 @@ def next_move(client, topic_list, msg_payload):
                         if(sqrt((rown-curr[0])*(rown-curr[0])+(coln-curr[1])*(coln-curr[1]))<sqrt((closetst[0]-curr[0])*(closetst[0]-curr[0])+(closetst[1]-curr[1])*(closetst[1]-curr[1]))):
                             closetst=[rown,coln]
             coin=closetst
+        # bfs (individual node)
         while(len(theQueue) > 0 and not done):
             tovisit=theQueue[0]
             theQueue.pop(0)
@@ -224,10 +231,12 @@ def next_move(client, topic_list, msg_payload):
             if tovisit[1]-1>=0 and [tovisit[0], tovisit[1]-1] not in obsticle and not visited[tovisit[0]][tovisit[1]-1]:
                 theQueue.append([tovisit[0], tovisit[1]-1])
                 parent[tovisit[0]][tovisit[1]-1]=tovisit
+        # retrace path
         while(done and len(final_path_points)):
             final_path_points.insert(0,parent[final_path_points[0][0]][final_path_points[0][1]])
             if(final_path_points[0]==curr):
                 done=False
+        # if no retrace(not reaching goal), move randomly to an available space
         if(not len(final_path_points)):
             if curr[0]+1<10 and [curr[0]+1, curr[1]] not in obsticle:
                 client.publish(f'games/{lobby_name}/{player_name}/move', 'DOWN')
@@ -237,6 +246,7 @@ def next_move(client, topic_list, msg_payload):
                 client.publish(f'games/{lobby_name}/{player_name}/move', 'RIGHT')
             elif curr[1]-1>=0 and [curr[0], curr[1]-1] not in obsticle:
                 client.publish(f'games/{lobby_name}/{player_name}/move', 'LEFT')
+        # else based on route move toward the goal
         elif final_path_points[1]==[curr[0]-1, curr[1]]:
             client.publish(f'games/{lobby_name}/{player_name}/move', 'UP')
         elif final_path_points[1]==[curr[0], curr[1]-1]:
@@ -284,33 +294,44 @@ if __name__ == '__main__':
     client.subscribe('games/+/start')
     client.subscribe('games/+/+/move')
     
+    # start loop
     client.loop_start()
     lobby_name = "lobby1"
+    # subscribe game
     client.subscribe(f'games/{lobby_name}/#')
+    # set team
     team1= "Red"
     team2="Black"
+    # set player
     player1="Po"
     player2="Kevin"
     player3="Bob"
     player4="John"
+    # publish players
     client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team1, "player_name": player1}))
     client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team1, "player_name": player2}))
     client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team2, "player_name": player3}))
     client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team2, "player_name": player4}))
+    # create user mapps
     playerVisited[player1]=[[0 for col in range(10)] for row in range(10)]
     playerVisited[player2]=[[0 for col in range(10)] for row in range(10)]
     playerVisited[player3]=[[0 for col in range(10)] for row in range(10)]
     playerVisited[player4]=[[0 for col in range(10)] for row in range(10)]
+    # wait for game to appear
     while lobby_name not in client.team_dict.keys():
         time.sleep(1)
+    # make sure we have enough player
     while (len(client.team_dict[lobby_name][team1]) < 2 or len(client.team_dict[lobby_name][team2]) < 2):
         time.sleep(1)
+    # start game
     client.publish(f'games/{lobby_name}/start', 'START')
+    # keep client while game running
     gameinProgress=True
     check=False
     while(gameinProgress):
         if(check):
             if(lobby_name not in client.team_dict.keys()):
+                # stop
                 gameinProgress=False
                 client.loop_stop()
         elif(client.team_dict[lobby_name]["started"]):

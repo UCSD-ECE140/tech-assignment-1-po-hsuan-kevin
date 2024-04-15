@@ -2,7 +2,7 @@ import os
 import json
 import copy
 from collections import OrderedDict
-import time
+import time, math
 
 import paho.mqtt.client as paho
 from paho import mqtt
@@ -12,6 +12,8 @@ from InputTypes import NewPlayer
 from game import Game
 from moveset import Moveset
 import heapq
+
+playerVisited={}
 
 # setting callbacks for different events to see if it works, print the message etc.
 def on_connect(client, userdata, flags, rc, properties=None):
@@ -183,9 +185,66 @@ def next_move(client, topic_list, msg_payload):
     player_name = topic_list[2]
     if(player_name not in client.move_dict[lobby_name].keys()):
         values=json.loads(msg_payload)
-        values={'obsticle':values['enemyPositions']+ values['walls'], 'coin':values['coin1']+values['coin2']+values['coin3']}
-        #use values to make move
-        client.publish(f'games/{lobby_name}/{player_name}/move', 'RIGHT')
+        curr = values['currentPosition']
+        playerVisited[player_name][curr[0]][curr[1]]=1
+        obsticle = values['enemyPositions'] +  values['walls']+values['teammatePositions']
+        for val in values['walls']:
+            playerVisited[player_name][val[0]][val[1]]=2
+        coin = values['coin1']+values['coin2'] + values['coin3']
+        theQueue=[curr]
+        visited=[[0 for col in range(10)] for row in range(10)]
+        parent=[[[0,0] for col in range(10)] for row in range(10)]
+        final_path_points=[]
+        done=False
+        if(not len(coin)):                
+            closetst=[100,100]
+            for rown,row in enumerate(playerVisited[player_name]):
+                for coln,val in enumerate(playerVisited[player_name]):
+                    if val==0:
+                        if(sqrt((rown-curr[0])*(rown-curr[0])+(coln-curr[1])*(coln-curr[1]))<sqrt((closetst[0]-curr[0])*(closetst[0]-curr[0])+(closetst[1]-curr[1])*(closetst[1]-curr[1]))):
+                            closetst=[rown,coln]
+            coin=closetst
+        while(len(theQueue) > 0 and not done):
+            tovisit=theQueue[0]
+            theQueue.pop(0)
+            if(visited[tovisit[0]][tovisit[1]]==0):
+                visited[tovisit[0]][tovisit[1]]=1
+            if(tovisit in coin):
+                final_path_points.append(tovisit)
+                done=True
+            if tovisit[0]+1<10 and [tovisit[0]+1, tovisit[1]] not in obsticle and not visited[tovisit[0]+1][tovisit[1]]:
+                theQueue.append([tovisit[0]+1, tovisit[1]])
+                parent[tovisit[0]+1][tovisit[1]]=tovisit
+            if tovisit[0]-1>=0 and [tovisit[0]-1, tovisit[1]] not in obsticle and not visited[tovisit[0]-1][tovisit[1]]:
+                theQueue.append([tovisit[0]-1, tovisit[1]])
+                parent[tovisit[0]-1][tovisit[1]]=tovisit
+            if tovisit[1]+1<10 and[tovisit[0], tovisit[1]+1] not in obsticle and not visited[tovisit[0]][tovisit[1]+1]:
+                theQueue.append([tovisit[0], tovisit[1]+1])
+                parent[tovisit[0]][tovisit[1]+1]=tovisit
+            if tovisit[1]-1>=0 and [tovisit[0], tovisit[1]-1] not in obsticle and not visited[tovisit[0]][tovisit[1]-1]:
+                theQueue.append([tovisit[0], tovisit[1]-1])
+                parent[tovisit[0]][tovisit[1]-1]=tovisit
+        while(done and len(final_path_points)):
+            final_path_points.insert(0,parent[final_path_points[0][0]][final_path_points[0][1]])
+            if(final_path_points[0]==curr):
+                done=False
+        if(not len(final_path_points)):
+            if curr[0]+1<10 and [curr[0]+1, curr[1]] not in obsticle:
+                client.publish(f'games/{lobby_name}/{player_name}/move', 'DOWN')
+            elif curr[0]-1>=0 and [curr[0]-1, curr[1]] not in obsticle:
+                client.publish(f'games/{lobby_name}/{player_name}/move', 'UP')
+            elif curr[1]+1<10 and [curr[0], curr[1]+1] not in obsticle:
+                client.publish(f'games/{lobby_name}/{player_name}/move', 'RIGHT')
+            elif curr[1]-1>=0 and [curr[0], curr[1]-1] not in obsticle:
+                client.publish(f'games/{lobby_name}/{player_name}/move', 'LEFT')
+        elif final_path_points[1]==[curr[0]-1, curr[1]]:
+            client.publish(f'games/{lobby_name}/{player_name}/move', 'UP')
+        elif final_path_points[1]==[curr[0], curr[1]-1]:
+            client.publish(f'games/{lobby_name}/{player_name}/move', 'LEFT')
+        elif final_path_points[1]==[curr[0]+1, curr[1]]:
+            client.publish(f'games/{lobby_name}/{player_name}/move', 'DOWN')
+        elif final_path_points[1]==[curr[0], curr[1]+1]:
+            client.publish(f'games/{lobby_name}/{player_name}/move', 'RIGHT')
 
 dispatch = {
     'new_game' : add_player,
@@ -193,41 +252,6 @@ dispatch = {
     'start' : start_game,
     'game_state' : next_move,
 }
-
-class Grid:
-    def __init__(self, width, height, walls, coins, player):
-        self.width = 10
-        self.height = 10
-        self.walls = walls
-        self.coins = coins
-        self.player = player
-
-    def is_valid_position(self, x, y):
-        return 0 <= x < self.width and 0 <= y < self.height and (x, y) not in self.walls
-
-    def get_neighbors(self, x, y):
-        neighbors = []
-        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            new_x, new_y = x + dx, y + dy
-            if self.is_valid_position(new_x, new_y):
-                neighbors.append((new_x, new_y))
-        return neighbors
-
-    def find_nearest_coin(self):
-        visited = set()
-        pq = [(0, self.player)]
-        while pq:
-            dist, (x, y) = heapq.heappop(pq)
-            if (x, y) in self.coins:
-                self.coins.remove((x, y))
-                self.player = (x, y)  # Move player to the coin
-                return dist
-            visited.add((x, y))
-            for nx, ny in self.get_neighbors(x, y):
-                if (nx, ny) not in visited:
-                    heapq.heappush(pq, (dist + 1, (nx, ny)))
-        return None
-
 
 if __name__ == '__main__':
     load_dotenv(dotenv_path='./credentials.env')
@@ -273,14 +297,22 @@ if __name__ == '__main__':
     client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team1, "player_name": player2}))
     client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team2, "player_name": player3}))
     client.publish("new_game", json.dumps({"lobby_name":lobby_name, "team_name": team2, "player_name": player4}))
+    playerVisited[player1]=[[0 for col in range(10)] for row in range(10)]
+    playerVisited[player2]=[[0 for col in range(10)] for row in range(10)]
+    playerVisited[player3]=[[0 for col in range(10)] for row in range(10)]
+    playerVisited[player4]=[[0 for col in range(10)] for row in range(10)]
     while lobby_name not in client.team_dict.keys():
         time.sleep(1)
     while (len(client.team_dict[lobby_name][team1]) < 2 or len(client.team_dict[lobby_name][team2]) < 2):
         time.sleep(1)
     client.publish(f'games/{lobby_name}/start', 'START')
-    while(True):
-        if(client.team_dict[lobby_name]["started"]):
-            time.sleep(1)
-    
-    client.loop_stop()
-    client.loop_forever()
+    gameinProgress=True
+    check=False
+    while(gameinProgress):
+        if(check):
+            if(lobby_name not in client.team_dict.keys()):
+                gameinProgress=False
+                client.loop_stop()
+        elif(client.team_dict[lobby_name]["started"]):
+            check=True
+    print('done')

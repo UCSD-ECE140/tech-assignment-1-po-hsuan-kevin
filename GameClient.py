@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from InputTypes import NewPlayer
 from game import Game
 from moveset import Moveset
+import heapq
 
 # setting callbacks for different events to see if it works, print the message etc.
 def on_connect(client, userdata, flags, rc, properties=None):
@@ -193,6 +194,40 @@ dispatch = {
     'game_state' : next_move,
 }
 
+class Grid:
+    def __init__(self, width, height, walls, coins, player):
+        self.width = 10
+        self.height = 10
+        self.walls = walls
+        self.coins = coins
+        self.player = player
+
+    def is_valid_position(self, x, y):
+        return 0 <= x < self.width and 0 <= y < self.height and (x, y) not in self.walls
+
+    def get_neighbors(self, x, y):
+        neighbors = []
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            new_x, new_y = x + dx, y + dy
+            if self.is_valid_position(new_x, new_y):
+                neighbors.append((new_x, new_y))
+        return neighbors
+
+    def find_nearest_coin(self):
+        visited = set()
+        pq = [(0, self.player)]
+        while pq:
+            dist, (x, y) = heapq.heappop(pq)
+            if (x, y) in self.coins:
+                self.coins.remove((x, y))
+                self.player = (x, y)  # Move player to the coin
+                return dist
+            visited.add((x, y))
+            for nx, ny in self.get_neighbors(x, y):
+                if (nx, ny) not in visited:
+                    heapq.heappush(pq, (dist + 1, (nx, ny)))
+        return None
+
 
 if __name__ == '__main__':
     load_dotenv(dotenv_path='./credentials.env')
@@ -246,5 +281,6 @@ if __name__ == '__main__':
     while(True):
         if(client.team_dict[lobby_name]["started"]):
             time.sleep(1)
+    
     client.loop_stop()
     client.loop_forever()

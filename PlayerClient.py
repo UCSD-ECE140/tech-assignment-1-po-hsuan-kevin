@@ -226,11 +226,15 @@ if __name__ == '__main__':
     time.sleep(1) # Wait a second to resolve game start
     client.publish(f"games/{lobby_name}/start", "START")
     while (True):
-        time.sleep(3)
+        time.sleep(2)
+        #Takes in input from user
         player1Move = input(player_1 + ": ")
+        #Uses the input to move
         client.publish(f"games/{lobby_name}/{player_1}/move", player1Move)
-        time.sleep(3)
+        time.sleep(2)
+        #Takes in input from user
         player2Move = input(player_2 + ": ")
+        #Uses the input to move
         client.publish(f"games/{lobby_name}/{player_2}/move", player2Move)
 
     
